@@ -164,7 +164,7 @@ cd /home/vagrant/KubeArmor/KubeArmor; sudo -E ./kubearmor -logPath=/tmp/kubearmo
 ## 1.3. Start kArmor logs in another terminal
 
 ```text
-(~vagrant)$ karmor log [flags]
+(~vagrant)$ karmor log --json
 ```
 
 <details>
@@ -231,9 +231,23 @@ spec:
 First we need to enter a container where we can test our policy
 
 ```text
-(~vagrant/KubeArmor)$ kubectl exec -it ubuntu-1-deployment-5bd4dff469-c5d9q -n multiubuntu -- bash
+(~vagrant/KubeArmor)$ kubectl exec -it ubuntu-1-deployment-5bd8d67678-qtddf -n multiubuntu -- bash
 ```
 
+Once inside the container, try running the ls command from the dash shell
+```text
+(root#ubuntu-1-deployment-5bd8d67678-qtddf)/# /bin/dash
+# ls
+dash: 1: ls: Permission denied
+```
 
+<details>
+<summary>karmor logs</summary>
 
+```text
+{"Timestamp":1649359476,"UpdatedTime":"2022-04-07T19:24:36.164999Z","ClusterName":"default","HostName":"kubearmor-dev","NamespaceName":"multiubuntu","PodName":"ubuntu-1-deployment-5bd8d67678-qtddf","ContainerID":"01bf3354c0e3038805405545a6034d7a26a4cf8cd2c6b106febe57b3e52d74f6","ContainerName":"ubuntu-1-container","HostPID":10834,"PPID":110,"PID":111,"PolicyName":"ksp-group-1-proc-path-block-from-source","Severity":"5","Message":"block /bin/dash executing /bin/ls","Type":"MatchedPolicy","Source":"/bin/dash","Operation":"Process","Resource":"/bin/ls","Data":"syscall=SYS_EXECVE","Action":"Block","Result":"Permission denied","ContainerImage":"kubearmor/ubuntu-w-utils:0.1@sha256:38f147a486036e3ae5af0ad94b25bd63a5a70b0b24420fde15fc635d9692a049","ParentProcessName":"/bin/dash","ProcessName":"/bin/ls"}
+```
+</details>
+
+After completing testing manually, you can add the policy in the tests/scenarios also including command files explaining the result by following the [Testing Guide](https://github.com/ErenYeager713/KubeArmor/blob/main/contribution/testing_guide.md#2--test-kubearmor-using-the-auto-testing-framework)
 
