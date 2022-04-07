@@ -1,6 +1,6 @@
 # System tests
 
-Set up KubeArmor in your Vagrant or Kubernetes environment by following the [Development Guide](https://https://github.com/kubearmor/KubeArmor/blob/main/contribution/development_guide.md)
+Set up KubeArmor in your Vagrant or Kubernetes environment by following the [Development Guide](https://github.com/kubearmor/KubeArmor/blob/main/contribution/development_guide.md)
 
 # 1. Sample System Test
 
@@ -194,7 +194,7 @@ Once the pods are running, you can move to the next section
 
 ## 1.5. Apply policy
 
-You can create and apply your own policy or use from the available [policies](https://https://github.com/kubearmor/KubeArmor/tree/main/examples/multiubuntu/security-policies)
+You can create and apply your own policy or use from the available [policies](https://github.com/kubearmor/KubeArmor/tree/main/examples/multiubuntu/security-policies)
 
 ```text
 (~vagrant/KubeArmor)$ kubectl apply -f examples/multiubuntu/security-policies/ksp-group-1-proc-path-block-from-source.yaml
