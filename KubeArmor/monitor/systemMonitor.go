@@ -109,9 +109,8 @@ func init() {
 
 // SystemMonitor Structure
 type SystemMonitor struct {
-	// host
-	HostName      string
-	KernelVersion string
+	// node
+	Node *tp.Node
 
 	// logs
 	Logger *fd.Feeder
@@ -161,14 +160,12 @@ type SystemMonitor struct {
 }
 
 // NewSystemMonitor Function
-func NewSystemMonitor(node tp.Node, logger *fd.Feeder, containers *map[string]tp.Container, containersLock **sync.RWMutex,
+func NewSystemMonitor(node *tp.Node, logger *fd.Feeder, containers *map[string]tp.Container, containersLock **sync.RWMutex,
 	activePidMap *map[string]tp.PidMap, activeHostPidMap *map[string]tp.PidMap, activePidMapLock **sync.RWMutex,
 	activeHostMap *map[uint32]tp.PidMap, activeHostMapLock **sync.RWMutex) *SystemMonitor {
 	mon := new(SystemMonitor)
 
-	mon.HostName = cfg.GlobalCfg.Host
-	mon.KernelVersion = node.KernelVersion
-
+	mon.Node = node
 	mon.Logger = logger
 
 	mon.Containers = containers
@@ -212,10 +209,10 @@ func (mon *SystemMonitor) InitBPF() error {
 					return err
 				}
 
-				mon.Logger.Printf("Downloaded kernel headers (%s)", mon.KernelVersion)
+				mon.Logger.Printf("Downloaded kernel headers (%s)", mon.Node.KernelVersion)
 
 				// set a new location for kernel headers
-				if err := os.Setenv("BCC_KERNEL_SOURCE", homeDir+"/GKE/kernel/usr/src/linux-headers-"+mon.KernelVersion); err != nil {
+				if err := os.Setenv("BCC_KERNEL_SOURCE", homeDir+"/GKE/kernel/usr/src/linux-headers-"+mon.Node.KernelVersion); err != nil {
 					mon.Logger.Err(err.Error())
 				}
 
@@ -227,7 +224,7 @@ func (mon *SystemMonitor) InitBPF() error {
 				// /media/root/usr folder in kubearmor for GKE. The following code
 				// checks whether the /media/root/usr/src/kernel-hdrs path exists
 				// and uses it for BCC kernel source, if present.
-				lklhdrpath := "/media/root/usr/src/linux-headers-" + mon.KernelVersion
+				lklhdrpath := "/media/root/usr/src/linux-headers-" + mon.Node.KernelVersion
 				mon.Logger.Printf("checking if kernel headers path (%s) exists", lklhdrpath)
 				if _, err := os.Stat(lklhdrpath); err == nil {
 					mon.Logger.Printf("using kernel headers from (%s)", lklhdrpath)
@@ -242,7 +239,6 @@ func (mon *SystemMonitor) InitBPF() error {
 	bpfPath := homeDir + "/BPF/system_monitor.c"
 	if _, err := os.Stat(filepath.Clean(bpfPath)); err != nil {
 		// go test
-
 		bpfPath = os.Getenv("PWD") + "/../BPF/system_monitor.c"
 		if _, err := os.Stat(filepath.Clean(bpfPath)); err != nil {
 			return err
@@ -268,7 +264,7 @@ func (mon *SystemMonitor) InitBPF() error {
 			return errors.New("bpf module is nil")
 		}
 	} else if cfg.GlobalCfg.Policy && cfg.GlobalCfg.HostPolicy { // container and host
-		if strings.HasPrefix(mon.KernelVersion, "4.") { // 4.x
+		if strings.HasPrefix(mon.Node.KernelVersion, "4.") { // 4.x
 			mon.BpfModule = bcc.NewModule(bpfSource, []string{"-O2", "-DMONITOR_HOST_AND_CONTAINER"})
 			if mon.BpfModule == nil {
 				return errors.New("bpf module is nil")
@@ -508,7 +504,7 @@ func (mon *SystemMonitor) TraceSyscall() {
 			} else if ctx.EventID == SysExecve {
 				if len(args) == 2 { // enter
 					// build a pid node
-					pidNode := mon.BuildPidNode(ctx, args[0].(string), args[1].([]string))
+					pidNode := mon.BuildPidNode(containerID, ctx, args[0].(string), args[1].([]string))
 					mon.AddActivePid(containerID, pidNode)
 
 					// generate a log with the base information
@@ -542,9 +538,7 @@ func (mon *SystemMonitor) TraceSyscall() {
 					delete(execLogMap, ctx.HostPID)
 
 					// update the log again
-					if !strings.HasPrefix(log.Source, "/") {
-						log = mon.UpdateLogBase(ctx.EventID, log)
-					}
+					log = mon.UpdateLogBase(ctx.EventID, log)
 
 					// get error message
 					if ctx.Retval < 0 {
@@ -568,7 +562,7 @@ func (mon *SystemMonitor) TraceSyscall() {
 			} else if ctx.EventID == SysExecveAt {
 				if len(args) == 4 { // enter
 					// build a pid node
-					pidNode := mon.BuildPidNode(ctx, args[1].(string), args[2].([]string))
+					pidNode := mon.BuildPidNode(containerID, ctx, args[1].(string), args[2].([]string))
 					mon.AddActivePid(containerID, pidNode)
 
 					// generate a log with the base information
@@ -611,9 +605,7 @@ func (mon *SystemMonitor) TraceSyscall() {
 					delete(execLogMap, ctx.HostPID)
 
 					// update the log again
-					if !strings.HasPrefix(log.Source, "/") {
-						log = mon.UpdateLogBase(ctx.EventID, log)
-					}
+					log = mon.UpdateLogBase(ctx.EventID, log)
 
 					// get error message
 					if ctx.Retval < 0 {
@@ -695,7 +687,7 @@ func (mon *SystemMonitor) TraceHostSyscall() {
 			} else if ctx.EventID == SysExecve {
 				if len(args) == 2 { // enter
 					// build a pid node
-					pidNode := mon.BuildPidNode(ctx, args[0].(string), args[1].([]string))
+					pidNode := mon.BuildPidNode("", ctx, args[0].(string), args[1].([]string))
 					mon.AddActivePid("", pidNode)
 
 					// generate a log with the base information
@@ -755,7 +747,7 @@ func (mon *SystemMonitor) TraceHostSyscall() {
 			} else if ctx.EventID == SysExecveAt {
 				if len(args) == 4 { // enter
 					// build a pid node
-					pidNode := mon.BuildPidNode(ctx, args[1].(string), args[2].([]string))
+					pidNode := mon.BuildPidNode("", ctx, args[1].(string), args[2].([]string))
 					mon.AddActivePid("", pidNode)
 
 					// generate a log with the base information

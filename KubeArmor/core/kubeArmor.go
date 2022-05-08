@@ -215,7 +215,7 @@ func (dm *KubeArmorDaemon) CloseLogger() bool {
 
 // InitSystemMonitor Function
 func (dm *KubeArmorDaemon) InitSystemMonitor() bool {
-	dm.SystemMonitor = mon.NewSystemMonitor(dm.Node, dm.Logger, &dm.Containers, &dm.ContainersLock,
+	dm.SystemMonitor = mon.NewSystemMonitor(&dm.Node, dm.Logger, &dm.Containers, &dm.ContainersLock,
 		&dm.ActivePidMap, &dm.ActiveHostPidMap, &dm.ActivePidMapLock, &dm.ActiveHostMap, &dm.ActiveHostMapLock)
 	if dm.SystemMonitor == nil {
 		return false
@@ -330,6 +330,7 @@ func KubeArmor() {
 
 	// Enable KubeArmorHostPolicy for both VM and KVMAgent and in non-k8s env
 	if cfg.GlobalCfg.KVMAgent || (!cfg.GlobalCfg.K8sEnv && cfg.GlobalCfg.HostPolicy) {
+		dm.Node.NodeName = cfg.GlobalCfg.Host
 		dm.Node.NodeIP = kl.GetExternalIPAddr()
 
 		dm.Node.Annotations = map[string]string{}
@@ -338,14 +339,18 @@ func KubeArmor() {
 		dm.Node.KernelVersion = kl.GetCommandOutputWithoutErr("uname", []string{"-r"})
 		dm.Node.KernelVersion = strings.TrimSuffix(dm.Node.KernelVersion, "\n")
 
-		dm.Node.PolicyEnabled = tp.KubeArmorPolicyEnabled
-
-		cfg.GlobalCfg.Policy = false
-		cfg.GlobalCfg.HostPolicy = true
-
 		kg.Print("Updated the node information")
 
-	} else if K8s.InitK8sClient() {
+	} else if cfg.GlobalCfg.K8sEnv {
+		if !K8s.InitK8sClient() {
+			kg.Err("Failed to initialize Kubernetes client")
+
+			// destroy the daemon
+			dm.DestroyKubeArmorDaemon()
+
+			return
+		}
+
 		kg.Print("Initialized Kubernetes client")
 
 		// set the flag
@@ -360,28 +365,25 @@ func KubeArmor() {
 		// wait for a while
 		time.Sleep(time.Second * 1)
 
-		if dm.Node.NodeIP == "" {
-			for timeout := 0; timeout <= 60; timeout++ {
-				if dm.Node.NodeIP != "" {
-					break
-				}
-
-				if dm.Node.NodeIP == "" && timeout == 60 {
-					kg.Print("The node information is not available, terminating KubeArmor")
-
-					// destroy the daemon
-					dm.DestroyKubeArmorDaemon()
-
-					return
-				}
-
-				kg.Print("The node information is not available")
-
-				// wait for a while
-				time.Sleep(time.Second * 1)
+		for timeout := 0; timeout <= 60; timeout++ {
+			if dm.Node.NodeIP != "" {
+				break
 			}
-		}
 
+			if dm.Node.NodeIP == "" && timeout == 60 {
+				kg.Print("The node information is not available, terminating KubeArmor")
+
+				// destroy the daemon
+				dm.DestroyKubeArmorDaemon()
+
+				return
+			}
+
+			kg.Print("The node information is not available")
+
+			// wait for a while
+			time.Sleep(time.Second * 1)
+		}
 	}
 
 	// == //
@@ -525,7 +527,7 @@ func KubeArmor() {
 		dm.Logger.Print("Started to monitor host security policies")
 	}
 
-	if !dm.K8sEnabled && cfg.GlobalCfg.HostPolicy {
+	if !cfg.GlobalCfg.K8sEnv && cfg.GlobalCfg.HostPolicy {
 		policyService := &policy.ServiceServer{}
 		policyService.UpdateHostPolicy = dm.ParseAndUpdateHostSecurityPolicy
 
@@ -545,7 +547,7 @@ func KubeArmor() {
 
 	// == //
 
-	if !cfg.GlobalCfg.K8sEnv && (cfg.GlobalCfg.KVMAgent || cfg.GlobalCfg.HostPolicy) {
+	if cfg.GlobalCfg.KVMAgent || (!cfg.GlobalCfg.K8sEnv && cfg.GlobalCfg.HostPolicy) {
 		// Restore and apply all kubearmor host security policies
 		dm.restoreKubeArmorHostPolicies()
 	}
